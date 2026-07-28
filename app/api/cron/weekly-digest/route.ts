@@ -4,6 +4,15 @@ import { sendTelegramMessage } from '@/lib/telegram';
 
 export const dynamic = 'force-dynamic';
 
+interface PredictionRow {
+  id: string;
+  category: string;
+  event_title: string;
+  edge: number;
+  score_label: string;
+  created_at: string;
+}
+
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== 'Bearer ' + process.env.CRON_SECRET) {
@@ -24,13 +33,17 @@ export async function GET(request: Request) {
       .select('prediction_id, was_correct');
     if (outError) throw outError;
 
-    const outcomeMap = {};
-    (outcomes || []).forEach(function (o) { outcomeMap[o.prediction_id] = o.was_correct; });
+    const predictionRows = (predictions || []) as PredictionRow[];
 
-    const withOutcome = (predictions || []).filter(function (p) { return outcomeMap[p.id] !== undefined; });
-    const openPositions = (predictions || []).filter(function (p) { return outcomeMap[p.id] === undefined; });
+    const outcomeMap: Record<string, boolean> = {};
+    (outcomes || []).forEach(function (o: { prediction_id: string; was_correct: boolean }) {
+      outcomeMap[o.prediction_id] = o.was_correct;
+    });
 
-    const byCategory = {};
+    const withOutcome = predictionRows.filter(function (p) { return outcomeMap[p.id] !== undefined; });
+    const openPositions = predictionRows.filter(function (p) { return outcomeMap[p.id] === undefined; });
+
+    const byCategory: Record<string, { correct: number; total: number }> = {};
     withOutcome.forEach(function (p) {
       if (!byCategory[p.category]) byCategory[p.category] = { correct: 0, total: 0 };
       byCategory[p.category].total += 1;
