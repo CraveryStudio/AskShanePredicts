@@ -9,6 +9,10 @@ import { formatAlertMessage } from '@/lib/format-alert';
 
 export const dynamic = 'force-dynamic';
 
+// Kalshi's actual series ticker for Fed funds rate markets, confirmed via
+// kalshi.com/markets/kxfed/fed-funds-rate
+const FED_SERIES_TICKER = 'KXFED';
+
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -20,7 +24,7 @@ export async function GET(request: Request) {
   try {
     const fedRateData = await getFredSeries('DFEDTARU', 5);
     const cpiData = await getFredSeries('CPIAUCSL', 5);
-    const markets = await listKalshiMarkets('FED');
+    const markets = await listKalshiMarkets(FED_SERIES_TICKER);
 
     for (const market of markets) {
       const marketPriceCents = market.last_price ?? market.yes_bid ?? 0;
