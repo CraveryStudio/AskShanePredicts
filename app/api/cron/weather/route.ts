@@ -17,10 +17,10 @@ async function getNoaaForecast(office: string, gridX: number, gridY: number) {
   return data.properties.periods;
 }
 
-// NOTE: office/gridX/gridY must be set per the market's specific location.
-// Look up the correct gridpoint for a city via https://api.weather.gov/points/{lat},{lon}
+// Kalshi series ticker confirmed via kalshi.com/category/climate (KXHIGHNY = NYC daily high temp).
+// NOAA gridpoint confirmed for Central Park, NY (the station Kalshi's NYC weather markets settle against).
 const WEATHER_SERIES = [
-  { seriesTicker: 'HIGHNY', office: 'OKX', gridX: 33, gridY: 37, label: 'NYC high temp' },
+  { seriesTicker: 'KXHIGHNY', office: 'OKX', gridX: 34, gridY: 38, label: 'NYC high temp (Central Park)' },
 ];
 
 export async function GET(request: Request) {
