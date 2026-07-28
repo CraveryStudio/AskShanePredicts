@@ -22,6 +22,42 @@ export async function listKalshiMarkets(seriesTicker: string, status: string = '
   return data.markets as KalshiMarket[];
 }
 
+// Kalshi splits data into live and historical tiers (since Feb 2026). Markets settled
+// before a rolling cutoff are only available via /historical/markets, not the regular
+// /markets?status=settled endpoint. This is needed for any backfill covering more than
+// a few recent days.
+export async function getHistoricalCutoff(): Promise<string | null> {
+  const res = await fetch(KALSHI_BASE + '/historical/cutoff');
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.market_settled_ts || null;
+}
+
+export async function listHistoricalMarkets(seriesTicker: string): Promise<KalshiMarket[]> {
+  const url = KALSHI_BASE + '/historical/markets?series_ticker=' + seriesTicker;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Kalshi historical API error: ' + res.status);
+  const data = await res.json();
+  return (data.markets || []) as KalshiMarket[];
+}
+
+// Fetches settled markets for a series across both the live and historical tiers,
+// deduplicated by ticker.
+export async function listAllSettledMarkets(seriesTicker: string): Promise<KalshiMarket[]> {
+  const [live, historical] = await Promise.all([
+    listKalshiMarkets(seriesTicker, 'settled').catch(function () { return [] as KalshiMarket[]; }),
+    listHistoricalMarkets(seriesTicker).catch(function () { return [] as KalshiMarket[]; }),
+  ]);
+  const seen = new Set<string>();
+  const combined: KalshiMarket[] = [];
+  for (const m of live.concat(historical)) {
+    if (seen.has(m.ticker)) continue;
+    seen.add(m.ticker);
+    combined.push(m);
+  }
+  return combined;
+}
+
 export async function getKalshiMarket(ticker: string): Promise<KalshiMarket> {
   const url = KALSHI_BASE + '/markets/' + ticker;
   const res = await fetch(url);
