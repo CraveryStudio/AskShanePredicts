@@ -2,9 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const FENCE = String.fromCharCode(96, 96, 96);
+const FENCE: string = String.fromCharCode(96, 96, 96);
 
-function extractJsonText(raw) {
+function extractJsonText(raw: string): string {
   let text = raw.trim();
   if (text.startsWith(FENCE)) {
     const firstNewline = text.indexOf('\n');
@@ -16,7 +16,7 @@ function extractJsonText(raw) {
   return text;
 }
 
-function parseEstimate(raw) {
+function parseEstimate(raw: string): { probability: number; rationale: string } {
   const text = extractJsonText(raw);
   try {
     const parsed = JSON.parse(text);
@@ -29,11 +29,15 @@ function parseEstimate(raw) {
     return { probability: probability, rationale: rationale };
   }
 }
-export async function getProbabilityEstimate(params) {
+export async function getProbabilityEstimate(params: {
+  eventTitle: string;
+  marketPrice: number;
+  supportingData: string;
+}): Promise<{ probability: number; rationale: string }> {
   const eventTitle = params.eventTitle;
   const marketPrice = params.marketPrice;
   const supportingData = params.supportingData;
-  const promptLines = [
+  const promptLines: string[] = [
     'You are a probability estimation assistant for a personal prediction-market tool.',
     '',
     'Event: ' + eventTitle,
