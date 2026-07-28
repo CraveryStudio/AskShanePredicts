@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getFredSeries } from '@/lib/fred';
-import { listKalshiMarkets } from '@/lib/kalshi';
+import { listKalshiMarkets, getMarketPriceCents } from '@/lib/kalshi';
 import { getProbabilityEstimate } from '@/lib/anthropic';
 import { scoreEdge, MIN_PRICE, MAX_PRICE } from '@/lib/scoring';
 import { supabase } from '@/lib/supabase';
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     const markets = await listKalshiMarkets(FED_SERIES_TICKER);
 
     for (const market of markets) {
-      const marketPriceCents = market.last_price ?? market.yes_bid ?? 0;
+      const marketPriceCents = getMarketPriceCents(market);
       if (marketPriceCents < MIN_PRICE || marketPriceCents > MAX_PRICE) continue;
 
       const supportingData = `Latest Fed funds target data: ${JSON.stringify(fedRateData)}\nLatest CPI data: ${JSON.stringify(cpiData)}`;
