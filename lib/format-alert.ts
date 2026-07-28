@@ -9,26 +9,42 @@ export function formatAlertMessage(params: {
   edge: number;
   scoreLabel: string;
   rationale: string;
-}) {
-  const { predictionId, eventTitle, category, marketPrice, modelProbability, edge, scoreLabel, rationale } = params;
+}): string {
+  const predictionId = params.predictionId;
+  const eventTitle = params.eventTitle;
+  const category = params.category;
+  const marketPrice = params.marketPrice;
+  const modelProbability = params.modelProbability;
+  const edge = params.edge;
+  const scoreLabel = params.scoreLabel;
+  const rationale = params.rationale;
+
   const evRows = calculateEV(modelProbability, marketPrice);
   const kelly = kellyFraction(modelProbability, marketPrice);
 
   const evLines = evRows
-    .map((r) => `  $${r.stake} → profit if right: $${r.profitIfCorrect}, EV: $${r.ev}`)
-    .join('\n');
+    .map(function (r) {
+      return '  $' + r.stake + ' -> profit if right: $' + r.profitIfCorrect + ', EV: $' + r.ev;
+    })
+    .join(String.fromCharCode(10));
 
-  return `<b>${scoreLabel}</b> — ${category.toUpperCase()}
-<b>${eventTitle}</b>
+  const edgeSign = edge > 0 ? '+' : '';
 
-Market price: ${marketPrice}c | Model: ${modelProbability}% | Edge: ${edge > 0 ? '+' : ''}${edge}pt
+  const messageLines = [
+    scoreLabel.toUpperCase() + ' — ' + category.toUpperCase(),
+    eventTitle,
+    '',
+    'Market price: ' + marketPrice + 'c | Model: ' + modelProbability + '% | Edge: ' + edgeSign + edge + 'pt',
+    '',
+    rationale,
+    '',
+    'EV by stake:',
+    evLines,
+    '',
+    'Kelly suggestion: ~' + kelly + '% of bankroll',
+    '',
+    'Prediction ID: ' + predictionId,
+  ];
 
-${rationale}
-
-<b>EV by stake:</b>
-${evLines}
-
-Kelly suggestion: ~${kelly}% of bankroll
-
-Prediction ID: ${predictionId}`;
+  return messageLines.join(String.fromCharCode(10));
 }
