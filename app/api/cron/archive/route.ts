@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-const TABLES = ['predictions', 'outcomes', 'bets_logged', 'alerts_sent'];
+const TABLES: string[] = ['predictions', 'outcomes', 'bets_logged', 'alerts_sent'];
 
 // Monthly job: copies a stable snapshot of every table to Supabase Storage.
 // Nothing is ever deleted from the live tables -- this is purely an archival copy.
@@ -14,11 +14,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const snapshot = {};
+    const snapshot: Record<string, unknown[]> = {};
     for (const table of TABLES) {
       const { data, error } = await supabase.from(table).select('*');
       if (error) throw error;
-      snapshot[table] = data;
+      snapshot[table] = data || [];
     }
 
     const now = new Date();
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 
     if (uploadError) throw uploadError;
 
-    const counts = {};
+    const counts: Record<string, number> = {};
     TABLES.forEach(function (t) { counts[t] = (snapshot[t] || []).length; });
 
     return NextResponse.json({ success: true, file: fileName, counts: counts });
