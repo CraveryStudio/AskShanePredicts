@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { listKalshiMarkets } from '@/lib/kalshi';
+import { listKalshiMarkets, getMarketPriceCents } from '@/lib/kalshi';
 import { getProbabilityEstimate } from '@/lib/anthropic';
 import { scoreEdge, MIN_PRICE, MAX_PRICE } from '@/lib/scoring';
 import { supabase } from '@/lib/supabase';
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
       const forecast = await getNoaaForecast(series.office, series.gridX, series.gridY);
 
       for (const market of markets) {
-        const marketPriceCents = market.last_price ?? market.yes_bid ?? 0;
+        const marketPriceCents = getMarketPriceCents(market);
         if (marketPriceCents < MIN_PRICE || marketPriceCents > MAX_PRICE) continue;
 
         const supportingData = `NOAA forecast periods for ${series.label}: ${JSON.stringify(forecast.slice(0, 3))}`;
