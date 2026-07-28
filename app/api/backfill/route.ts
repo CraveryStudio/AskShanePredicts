@@ -6,19 +6,19 @@ import { scoreEdge } from '@/lib/scoring';
 import { supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
-// One-time (manually triggered) historical backfill, scoped to Fed/macro only.
-// Weather is excluded: NOAA's API only exposes current/future forecasts, so there is
-// no way to reconstruct what the forecast actually looked like on a past date.
-// For Fed markets, FRED DOES expose real historical observations (via observation_end),
-// so this genuinely re-runs the model against the data that existed at the time --
-// it does not just replay today's data against old markets.
-// No Telegram alerts are sent for backfilled entries, to avoid spamming 90 days of history.
-// Checks both the live and historical Kalshi tiers, since most of a 90-day window
-// falls before Kalshi's live/historical cutoff.
-// NOTE: unlike the live crons, this intentionally does NOT apply the MIN/MAX price filter --
-// a settled market's price is always 0 or 100 (the outcome is now certain), so that filter
-// (designed to skip near-certain LIVE markets) would reject every single backfilled market.
+// One-time (manually triggered, repeatable) historical backfill, scoped to Fed/macro only.
+// Weather is excluded: NOAA's API only exposes current/future forecasts.
+// FRED exposes real historical observations (via observation_end), so this genuinely
+// re-runs the model against the data that existed at the time.
+// No Telegram alerts are sent for backfilled entries.
+// Does NOT apply the live price filter -- a settled market's price is always 0 or 100.
+// Processes at most BATCH_LIMIT markets per call and skips ones already backfilled
+// (by market_id), so calling this endpoint repeatedly makes incremental progress
+// instead of timing out or redoing work.
+const BATCH_LIMIT = 8;
+
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== 'Bearer ' + process.env.CRON_SECRET) {
@@ -30,12 +30,22 @@ export async function GET(request: Request) {
 
   try {
     const markets = await listAllSettledMarkets('KXFED');
+    const inWindow = markets.filter(function (m) {
+      return m.result && new Date(m.close_time) >= ninetyDaysAgo;
+    });
 
-    for (const market of markets) {
-      if (!market.result) continue;
+    const { data: alreadyDone, error: doneError } = await supabase
+      .from('predictions')
+      .select('market_id')
+      .eq('category', 'fed_macro');
+    if (doneError) throw doneError;
+
+    const doneSet = new Set((alreadyDone || []).map(function (r) { return r.market_id; }));
+    const remaining = inWindow.filter(function (m) { return !doneSet.has(m.ticker); });
+    const batch = remaining.slice(0, BATCH_LIMIT);
+
+    for (const market of batch) {
       const closeDate = new Date(market.close_time);
-      if (closeDate < ninetyDaysAgo) continue;
-
       const asOfDate = closeDate.toISOString().slice(0, 10);
       const fedRateData = await getFredSeries('DFEDTARU', 5, asOfDate);
       const cpiData = await getFredSeries('CPIAUCSL', 5, asOfDate);
@@ -72,7 +82,7 @@ export async function GET(request: Request) {
       if (predError) throw predError;
 
       const modelLeanedYes = estimate.probability >= 50;
-      const actualYes = market.result === 'yes';
+      const actualYes = (market.result as string) === 'yes';
 
       const { error: outcomeError } = await supabase.from('outcomes').insert({
         prediction_id: prediction.id,
@@ -83,10 +93,17 @@ export async function GET(request: Request) {
 
       if (outcomeError) throw outcomeError;
 
-      results.push({ ticker: market.ticker, probability: estimate.probability, result: market.result });
+      results.push({ ticker: market.ticker, probability: estimate.probability, result: market.result as string });
     }
 
-    return NextResponse.json({ success: true, backfilled: results.length, marketsFound: markets.length, results: results });
+    return NextResponse.json({
+      success: true,
+      backfilled: results.length,
+      marketsFound: markets.length,
+      inWindow: inWindow.length,
+      remainingAfterThisBatch: remaining.length - batch.length,
+      results: results,
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: String(err), partial: results }, { status: 500 });
