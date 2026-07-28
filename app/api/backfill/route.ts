@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getFredSeries } from '@/lib/fred';
-import { listKalshiMarkets, getMarketPriceCents } from '@/lib/kalshi';
+import { listAllSettledMarkets, getMarketPriceCents } from '@/lib/kalshi';
 import { getProbabilityEstimate } from '@/lib/anthropic';
 import { scoreEdge, MIN_PRICE, MAX_PRICE } from '@/lib/scoring';
 import { supabase } from '@/lib/supabase';
@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 // so this genuinely re-runs the model against the data that existed at the time --
 // it does not just replay today's data against old markets.
 // No Telegram alerts are sent for backfilled entries, to avoid spamming 90 days of history.
-// Kalshi's /markets status filter only accepts: unopened, open, closed, settled.
+// Checks both the live and historical Kalshi tiers, since most of a 90-day window
+// falls before Kalshi's live/historical cutoff.
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== 'Bearer ' + process.env.CRON_SECRET) {
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
   try {
-    const markets = await listKalshiMarkets('KXFED', 'settled');
+    const markets = await listAllSettledMarkets('KXFED');
 
     for (const market of markets) {
       if (!market.result) continue;
@@ -83,7 +84,7 @@ export async function GET(request: Request) {
       results.push({ ticker: market.ticker, probability: estimate.probability, result: market.result });
     }
 
-    return NextResponse.json({ success: true, backfilled: results.length, results: results });
+    return NextResponse.json({ success: true, backfilled: results.length, marketsFound: markets.length, results: results });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: String(err), partial: results }, { status: 500 });
