@@ -24,3 +24,4 @@ export default function Home() {
     </main>
   );
 }
+// trigger redeploy after billing reactivation
