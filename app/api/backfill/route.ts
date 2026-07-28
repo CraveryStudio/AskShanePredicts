@@ -14,17 +14,18 @@ export const dynamic = 'force-dynamic';
 // so this genuinely re-runs the model against the data that existed at the time --
 // it does not just replay today's data against old markets.
 // No Telegram alerts are sent for backfilled entries, to avoid spamming 90 days of history.
+// Kalshi's /markets status filter only accepts: unopened, open, closed, settled.
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== 'Bearer ' + process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const results = [];
+  const results: Array<{ ticker: string; probability: number; result: string }> = [];
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
   try {
-    const markets = await listKalshiMarkets('KXFED', 'finalized');
+    const markets = await listKalshiMarkets('KXFED', 'settled');
 
     for (const market of markets) {
       if (!market.result) continue;
