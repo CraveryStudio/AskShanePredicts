@@ -29,7 +29,6 @@ function parseEstimate(raw) {
     return { probability: probability, rationale: rationale };
   }
 }
-
 export async function getProbabilityEstimate(params) {
   const eventTitle = params.eventTitle;
   const marketPrice = params.marketPrice;
