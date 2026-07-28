@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/fed-macro", "schedule": "0 13 * * *" },
+    { "path": "/api/cron/weather", "schedule": "0 13 * * *" }
+  ]
+}
