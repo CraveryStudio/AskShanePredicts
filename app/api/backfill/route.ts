@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getFredSeries } from '@/lib/fred';
 import { listAllSettledMarkets, getMarketPriceCents } from '@/lib/kalshi';
 import { getProbabilityEstimate } from '@/lib/anthropic';
-import { scoreEdge, MIN_PRICE, MAX_PRICE } from '@/lib/scoring';
+import { scoreEdge } from '@/lib/scoring';
 import { supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +16,9 @@ export const dynamic = 'force-dynamic';
 // No Telegram alerts are sent for backfilled entries, to avoid spamming 90 days of history.
 // Checks both the live and historical Kalshi tiers, since most of a 90-day window
 // falls before Kalshi's live/historical cutoff.
+// NOTE: unlike the live crons, this intentionally does NOT apply the MIN/MAX price filter --
+// a settled market's price is always 0 or 100 (the outcome is now certain), so that filter
+// (designed to skip near-certain LIVE markets) would reject every single backfilled market.
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
   if (authHeader !== 'Bearer ' + process.env.CRON_SECRET) {
@@ -38,7 +41,6 @@ export async function GET(request: Request) {
       const cpiData = await getFredSeries('CPIAUCSL', 5, asOfDate);
 
       const marketPriceCents = getMarketPriceCents(market);
-      if (marketPriceCents < MIN_PRICE || marketPriceCents > MAX_PRICE) continue;
 
       const supportingData = 'Fed funds target data as of ' + asOfDate + ': ' + JSON.stringify(fedRateData) +
         String.fromCharCode(10) + 'CPI data as of ' + asOfDate + ': ' + JSON.stringify(cpiData);
