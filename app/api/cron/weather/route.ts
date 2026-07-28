@@ -3,6 +3,8 @@ import { listKalshiMarkets } from '@/lib/kalshi';
 import { getProbabilityEstimate } from '@/lib/anthropic';
 import { scoreEdge, MIN_PRICE, MAX_PRICE } from '@/lib/scoring';
 import { supabase } from '@/lib/supabase';
+import { sendTelegramMessage } from '@/lib/telegram';
+import { formatAlertMessage } from '@/lib/format-alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +50,7 @@ export async function GET(request: Request) {
 
         const { edge, label } = scoreEdge(estimate.probability, marketPriceCents);
 
-        const { data, error } = await supabase
+        const { data: prediction, error } = await supabase
           .from('predictions')
           .insert({
             category: 'weather',
@@ -65,7 +67,21 @@ export async function GET(request: Request) {
           .single();
 
         if (error) throw error;
-        results.push(data);
+        results.push(prediction);
+
+        const message = formatAlertMessage({
+          predictionId: prediction.id,
+          eventTitle: market.title,
+          category: 'weather',
+          marketPrice: marketPriceCents,
+          modelProbability: estimate.probability,
+          edge,
+          scoreLabel: label,
+          rationale: estimate.rationale,
+        });
+
+        await sendTelegramMessage(message);
+        await supabase.from('alerts_sent').insert({ prediction_id: prediction.id, channel: 'telegram' });
       }
     }
 
