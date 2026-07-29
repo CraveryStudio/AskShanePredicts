@@ -25,87 +25,87 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const results: Array<{ ticker: string; probability: number; result: string }> = [];
+const results: Array<{ ticker: string; probability: number; result: string }> = [];
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
-  try {
-    const markets = await listAllSettledMarkets('KXFED');
-    const inWindow = markets.filter(function (m) {
-      return m.result && new Date(m.close_time) >= ninetyDaysAgo;
-    });
+try {
+  const markets = await listAllSettledMarkets('KXFED');
+  const inWindow = markets.filter(function (m) {
+    return m.result && new Date(m.close_time) >= ninetyDaysAgo;
+  });
 
-    const { data: alreadyDone, error: doneError } = await supabase
-      .from('predictions')
-      .select('market_id')
-      .eq('category', 'fed_macro');
-    if (doneError) throw doneError;
+  const { data: alreadyDone, error: doneError } = await supabase
+  .from('predictions')
+  .select('market_id')
+  .eq('category', 'fed_macro');
+  if (doneError) throw doneError;
 
-    const doneSet = new Set((alreadyDone || []).map(function (r) { return r.market_id; }));
-    const remaining = inWindow.filter(function (m) { return !doneSet.has(m.ticker); });
-    const batch = remaining.slice(0, BATCH_LIMIT);
+  const doneSet = new Set((alreadyDone || []).map(function (r) { return r.market_id; }));
+  const remaining = inWindow.filter(function (m) { return !doneSet.has(m.ticker); });
+  const batch = remaining.slice(0, BATCH_LIMIT);
 
-    for (const market of batch) {
-      const closeDate = new Date(market.close_time);
-      const asOfDate = closeDate.toISOString().slice(0, 10);
-      const fedRateData = await getFredSeries('DFEDTARU', 5, asOfDate);
-      const cpiData = await getFredSeries('CPIAUCSL', 5, asOfDate);
+  for (const market of batch) {
+    const closeDate = new Date(market.close_time);
+    const asOfDate = closeDate.toISOString().slice(0, 10);
+    const fedRateData = await getFredSeries('DFEDTARU', 5, asOfDate);
+    const cpiData = await getFredSeries('CPIAUCSL', 5, asOfDate);
 
-      const marketPriceCents = getMarketPriceCents(market);
+  const marketPriceCents = getMarketPriceCents(market);
 
-      const supportingData = 'Fed funds target data as of ' + asOfDate + ': ' + JSON.stringify(fedRateData) +
-        String.fromCharCode(10) + 'CPI data as of ' + asOfDate + ': ' + JSON.stringify(cpiData);
+  const supportingData = 'Fed funds target data as of ' + asOfDate + ': ' + JSON.stringify(fedRateData) +
+    String.fromCharCode(10) + 'CPI data as of ' + asOfDate + ': ' + JSON.stringify(cpiData);
 
-      const estimate = await getProbabilityEstimate({
-        eventTitle: market.title,
-        marketPrice: marketPriceCents,
-        supportingData: supportingData,
-      });
+  const estimate = await getProbabilityEstimate({
+    eventTitle: market.title,
+    marketPrice: marketPriceCents,
+    supportingData: supportingData,
+  });
 
-      const scored = scoreEdge(estimate.probability, marketPriceCents);
+  const scored = scoreEdge(estimate.probabilityLow, estimate.probabilityHigh, marketPriceCents);
 
-      const { data: prediction, error: predError } = await supabase
-        .from('predictions')
-        .insert({
-          category: 'fed_macro',
-          market_id: market.ticker,
-          event_title: market.title,
-          resolution_date: asOfDate,
-          market_price: marketPriceCents,
-          model_probability: estimate.probability,
-          edge: scored.edge,
-          score_label: scored.label,
-          rationale: '[BACKFILL] ' + estimate.rationale,
-        })
-        .select()
-        .single();
+  const { data: prediction, error: predError } = await supabase
+    .from('predictions')
+    .insert({
+      category: 'fed_macro',
+      market_id: market.ticker,
+      event_title: market.title,
+      resolution_date: asOfDate,
+      market_price: marketPriceCents,
+      model_probability: estimate.probabilityLow,
+      edge: scored.edge,
+      score_label: scored.label,
+      rationale: '[BACKFILL] ' + estimate.rationale,
+    })
+    .select()
+    .single();
 
-      if (predError) throw predError;
+  if (predError) throw predError;
 
-      const modelLeanedYes = estimate.probability >= 50;
-      const actualYes = (market.result as string) === 'yes';
+  const modelLeanedYes = estimate.probabilityLow >= 50;
+    const actualYes = (market.result as string) === 'yes';
 
-      const { error: outcomeError } = await supabase.from('outcomes').insert({
-        prediction_id: prediction.id,
-        actual_result: market.result,
-        market_price_before_resolution: marketPriceCents,
-        was_correct: modelLeanedYes === actualYes,
-      });
+  const { error: outcomeError } = await supabase.from('outcomes').insert({
+    prediction_id: prediction.id,
+    actual_result: market.result,
+    market_price_before_resolution: marketPriceCents,
+    was_correct: modelLeanedYes === actualYes,
+  });
 
-      if (outcomeError) throw outcomeError;
+  if (outcomeError) throw outcomeError;
 
-      results.push({ ticker: market.ticker, probability: estimate.probability, result: market.result as string });
-    }
-
-    return NextResponse.json({
-      success: true,
-      backfilled: results.length,
-      marketsFound: markets.length,
-      inWindow: inWindow.length,
-      remainingAfterThisBatch: remaining.length - batch.length,
-      results: results,
-    });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: String(err), partial: results }, { status: 500 });
+  results.push({ ticker: market.ticker, probability: estimate.probabilityLow, result: market.result as string });
   }
+
+  return NextResponse.json({
+    success: true,
+    backfilled: results.length,
+    marketsFound: markets.length,
+    inWindow: inWindow.length,
+    remainingAfterThisBatch: remaining.length - batch.length,
+    results: results,
+  });
+} catch (err) {
+  console.error(err);
+  return NextResponse.json({ error: String(err), partial: results }, { status: 500 });
+}
 }
