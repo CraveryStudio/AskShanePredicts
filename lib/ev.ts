@@ -1,28 +1,34 @@
 // Rough stake tiers for the EV table (personal-use bankroll is tracked as a tier, not an exact figure)
 export const STAKE_TIERS = [10, 50, 100, 500];
 
+// Displayed Kelly recommendations are capped to this fraction of full Kelly (quarter-Kelly by
+// default). Full Kelly assumes the model's probability estimate is exact truth; a single-model
+// estimate without an execution track record does not warrant full-Kelly sizing.
+export const KELLY_CAP_FRACTION = 0.25;
+
 export function calculateEV(modelProbability: number, marketPriceCents: number, stakes: number[] = STAKE_TIERS) {
   // marketPriceCents: cost per contract in cents (0-100); each contract pays $1 if it resolves YES
-const priceDollars = marketPriceCents / 100;
+  const priceDollars = marketPriceCents / 100;
   const probability = modelProbability / 100;
 
-return stakes.map((stake) => {
-  const shares = priceDollars > 0 ? stake / priceDollars : 0;
-  const payoutIfCorrect = shares * 1;
-  const profitIfCorrect = payoutIfCorrect - stake;
-  const ev = probability * profitIfCorrect - (1 - probability) * stake;
-  return {
-    stake,
-    shares: Math.round(shares * 100) / 100,
-    payoutIfCorrect: Math.round(payoutIfCorrect * 100) / 100,
-    profitIfCorrect: Math.round(profitIfCorrect * 100) / 100,
-    ev: Math.round(ev * 100) / 100,
-    maxLoss: stake,
-  };
-});
+  return stakes.map((stake) => {
+    const shares = priceDollars > 0 ? stake / priceDollars : 0;
+    const payoutIfCorrect = shares * 1;
+    const profitIfCorrect = payoutIfCorrect - stake;
+    const ev = probability * profitIfCorrect - (1 - probability) * stake;
+    return {
+      stake,
+      shares: Math.round(shares * 100) / 100,
+      payoutIfCorrect: Math.round(payoutIfCorrect * 100) / 100,
+      profitIfCorrect: Math.round(profitIfCorrect * 100) / 100,
+      ev: Math.round(ev * 100) / 100,
+      maxLoss: stake,
+    };
+  });
 }
 
-// Fractional Kelly Criterion, expressed as a % of bankroll. Floored at 0 (never suggests negative stakes).
+// Fractional Kelly Criterion, expressed as a % of bankroll, capped at KELLY_CAP_FRACTION of
+// full Kelly. Floored at 0 (never suggests negative stakes).
 export function kellyFraction(modelProbability: number, marketPriceCents: number) {
   const p = modelProbability / 100;
   const price = marketPriceCents / 100;
@@ -30,7 +36,8 @@ export function kellyFraction(modelProbability: number, marketPriceCents: number
   const b = (1 - price) / price;
   const q = 1 - p;
   const f = (b * p - q) / b;
-  return Math.max(0, Math.round(f * 10000) / 100);
+  const cappedFraction = Math.max(0, f) * KELLY_CAP_FRACTION;
+  return Math.round(cappedFraction * 10000) / 100;
 }
 
 // Gates Kelly sizing to 0 whenever the score label indicates no actionable edge, regardless of
@@ -49,14 +56,14 @@ export function calculateFadeSideEV(
   probabilityHigh: number,
   marketPriceCents: number,
   stakes: number[] = STAKE_TIERS
-  ) {
+) {
   const noPriceCents = 100 - marketPriceCents;
   const noProbLow = 100 - probabilityHigh;
   const noProbHigh = 100 - probabilityLow;
   const conservativeNoProb = noProbLow;
 
-const evRows = calculateEV(conservativeNoProb, noPriceCents, stakes);
+  const evRows = calculateEV(conservativeNoProb, noPriceCents, stakes);
   const kelly = kellyFraction(conservativeNoProb, noPriceCents);
 
-return { noPriceCents, conservativeNoProb, noProbLow, noProbHigh, evRows, kelly };
+  return { noPriceCents, conservativeNoProb, noProbLow, noProbHigh, evRows, kelly };
 }
