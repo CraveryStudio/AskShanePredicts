@@ -19,64 +19,65 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const results = [];
+const results = [];
 
-  try {
-    const fedRateData = await getFredSeries('DFEDTARU', 5);
-    const cpiData = await getFredSeries('CPIAUCSL', 5);
-    const markets = await listKalshiMarkets(FED_SERIES_TICKER);
+try {
+  const fedRateData = await getFredSeries('DFEDTARU', 5);
+  const cpiData = await getFredSeries('CPIAUCSL', 5);
+  const markets = await listKalshiMarkets(FED_SERIES_TICKER);
 
-    for (const market of markets) {
-      const marketPriceCents = getMarketPriceCents(market);
-      if (marketPriceCents < MIN_PRICE || marketPriceCents > MAX_PRICE) continue;
+  for (const market of markets) {
+    const marketPriceCents = getMarketPriceCents(market);
+    if (marketPriceCents < MIN_PRICE || marketPriceCents > MAX_PRICE) continue;
 
-      const supportingData = `Latest Fed funds target data: ${JSON.stringify(fedRateData)}\nLatest CPI data: ${JSON.stringify(cpiData)}`;
+  const supportingData = `Latest Fed funds target data: ${JSON.stringify(fedRateData)}\nLatest CPI data: ${JSON.stringify(cpiData)}`;
 
-      const estimate = await getProbabilityEstimate({
-        eventTitle: market.title,
-        marketPrice: marketPriceCents,
-        supportingData,
-      });
+  const estimate = await getProbabilityEstimate({
+    eventTitle: market.title,
+    marketPrice: marketPriceCents,
+    supportingData,
+  });
 
-      const { edge, label } = scoreEdge(estimate.probability, marketPriceCents);
+  const { edge, label } = scoreEdge(estimate.probabilityLow, estimate.probabilityHigh, marketPriceCents);
 
-      const { data: prediction, error } = await supabase
-        .from('predictions')
-        .insert({
-          category: 'fed_macro',
-          market_id: market.ticker,
-          event_title: market.title,
-          resolution_date: market.close_time,
-          market_price: marketPriceCents,
-          model_probability: estimate.probability,
-          edge,
-          score_label: label,
-          rationale: estimate.rationale,
-        })
-        .select()
-        .single();
+  const { data: prediction, error } = await supabase
+    .from('predictions')
+    .insert({
+      category: 'fed_macro',
+      market_id: market.ticker,
+      event_title: market.title,
+      resolution_date: market.close_time,
+      market_price: marketPriceCents,
+      model_probability: estimate.probabilityLow,
+      edge,
+      score_label: label,
+      rationale: estimate.rationale,
+    })
+    .select()
+    .single();
 
-      if (error) throw error;
-      results.push(prediction);
+  if (error) throw error;
+    results.push(prediction);
 
-      const message = formatAlertMessage({
-        predictionId: prediction.id,
-        eventTitle: market.title,
-        category: 'fed_macro',
-        marketPrice: marketPriceCents,
-        modelProbability: estimate.probability,
-        edge,
-        scoreLabel: label,
-        rationale: estimate.rationale,
-      });
+  const message = formatAlertMessage({
+    predictionId: prediction.id,
+    eventTitle: market.title,
+    category: 'fed_macro',
+    marketPrice: marketPriceCents,
+    probabilityLow: estimate.probabilityLow,
+    probabilityHigh: estimate.probabilityHigh,
+    edge,
+    scoreLabel: label,
+    rationale: estimate.rationale,
+  });
 
-      await sendTelegramMessage(message);
-      await supabase.from('alerts_sent').insert({ prediction_id: prediction.id, channel: 'telegram' });
-    }
-
-    return NextResponse.json({ success: true, count: results.length, results });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+  await sendTelegramMessage(message);
+    await supabase.from('alerts_sent').insert({ prediction_id: prediction.id, channel: 'telegram' });
   }
+
+  return NextResponse.json({ success: true, count: results.length, results });
+} catch (err) {
+  console.error(err);
+  return NextResponse.json({ error: String(err) }, { status: 500 });
+}
 }
