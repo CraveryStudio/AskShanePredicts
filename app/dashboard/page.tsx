@@ -42,6 +42,33 @@ const tierColors: Record<string, string> = {
   Fade: '#F0883E',
 };
 
+// Buckets resolved alerts by the model's stated confidence -- whichever direction it leaned
+// (a 15% YES estimate is really an 85%-confident NO lean) -- against how often that lean was
+// actually correct. A well-calibrated model's actual accuracy in each row should land close
+// to the confidence range itself.
+function computeCalibration(rows: { id: string; model_probability: number }[], outcomeMap: Map<string, OutcomeRow>) {
+  const buckets = [
+    { label: '50-60%', min: 50, max: 60 },
+    { label: '60-70%', min: 60, max: 70 },
+    { label: '70-80%', min: 70, max: 80 },
+    { label: '80-90%', min: 80, max: 90 },
+    { label: '90-100%', min: 90, max: 100 },
+  ];
+  const results = buckets.map((b) => ({ ...b, total: 0, correct: 0 }));
+
+  rows.forEach((r) => {
+    const outcome = outcomeMap.get(r.id);
+    if (!outcome) return;
+    const confidence = r.model_probability >= 50 ? r.model_probability : 100 - r.model_probability;
+    const bucket = results.find((b) => (confidence >= b.min && confidence < b.max) || (confidence === 100 && b.max === 100));
+    if (!bucket) return;
+    bucket.total += 1;
+    if (outcome.was_correct) bucket.correct += 1;
+  });
+
+  return results;
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -69,6 +96,11 @@ export default async function DashboardPage({
   if (searchParams.category) {
     rows = rows.filter((r) => r.category === searchParams.category);
   }
+
+  // Captured before the tier filter: calibration should reflect the full confidence
+  // spectrum (category/date filters still apply), not just whichever tier is selected.
+  const calibrationRows = rows;
+
   if (searchParams.tier) {
     rows = rows.filter((r) => r.score_label === searchParams.tier);
   }
@@ -81,6 +113,9 @@ export default async function DashboardPage({
   const resolved = rows.filter((r) => outcomeMap.has(r.id));
   const correct = resolved.filter((r) => outcomeMap.get(r.id)?.was_correct);
   const accuracyPct = resolved.length > 0 ? Math.round((correct.length / resolved.length) * 100) : null;
+
+  const calibration = computeCalibration(calibrationRows, outcomeMap);
+  const calibrationHasData = calibration.some((b) => b.total > 0);
 
   function buildLink(overrides: { category?: string | null; tier?: string | null; days?: number }) {
     const params = new URLSearchParams();
@@ -231,6 +266,60 @@ export default async function DashboardPage({
         Kelly shown here is quarter-Kelly, gated to 0% on &quot;No edge&quot;. Fade-tier sizing (the NO-side trade) isn&apos;t
         reconstructable from stored data yet &mdash; check the original Telegram alert for that number.
       </p>
+
+      <section style={{ marginTop: 32 }}>
+        <h2 style={{ fontSize: '1.1rem', color: '#C9A227', marginBottom: 4 }}>Calibration</h2>
+        <p style={{ color: '#8A94A6', fontSize: 12, marginBottom: 12 }}>
+          For resolved alerts in this range, buckets the model&apos;s stated confidence (whichever direction it leaned)
+          against how often that lean was actually correct. A well-calibrated model&apos;s actual accuracy should land
+          close to each row&apos;s confidence range.
+        </p>
+        {!calibrationHasData ? (
+          <p style={{ color: '#8A94A6', fontSize: 13 }}>Not enough resolved alerts yet to compute calibration.</p>
+        ) : (
+          <div style={{ overflowX: 'auto', border: '1px solid #2A3B57', borderRadius: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#0F2A4A', textAlign: 'left' }}>
+                  {['Confidence range', 'Resolved', 'Correct', 'Actual accuracy', 'Gap'].map((h) => (
+                    <th
+                      key={h}
+                      style={{ padding: '10px 12px', color: '#8A94A6', fontWeight: 500, borderBottom: '1px solid #2A3B57' }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {calibration.map((b) => {
+                  const actualPct = b.total > 0 ? Math.round((b.correct / b.total) * 100) : null;
+                  const midpoint = (b.min + b.max) / 2;
+                  const gap = actualPct !== null ? Math.round(actualPct - midpoint) : null;
+                  return (
+                    <tr key={b.label} style={{ borderBottom: '1px solid #1B2A42' }}>
+                      <td style={{ padding: '10px 12px', color: '#E5E5E5' }}>{b.label}</td>
+                      <td style={{ padding: '10px 12px', color: '#E5E5E5' }}>{b.total}</td>
+                      <td style={{ padding: '10px 12px', color: '#E5E5E5' }}>{b.correct}</td>
+                      <td style={{ padding: '10px 12px', color: '#E5E5E5' }}>
+                        {actualPct !== null ? actualPct + '%' : String.fromCharCode(8212)}
+                      </td>
+                      <td
+                        style={{
+                          padding: '10px 12px',
+                          color: gap === null ? '#8A94A6' : Math.abs(gap) <= 10 ? '#3FB950' : '#F0883E',
+                        }}
+                      >
+                        {gap !== null ? (gap > 0 ? '+' : '') + gap + 'pt' : String.fromCharCode(8212)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </main>
   );
 }
