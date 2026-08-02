@@ -68,6 +68,7 @@ try {
 
     if (error) throw error;
     results.push(prediction);
+    if (!ACTIONABLE_LABELS.includes(label)) continue;
 
     const message = formatAlertMessage({
       predictionId: prediction.id,
