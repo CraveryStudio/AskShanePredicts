@@ -26,6 +26,8 @@ try {
   const cpiData = await getFredSeries('CPIAUCSL', 5);
   const markets = await listKalshiMarkets(FED_SERIES_TICKER);
 
+  const ACTIONABLE_LABELS = ['Fade', 'Strong lean', 'Lean'];
+
   for (const market of markets) {
     const marketPriceCents = getMarketPriceCents(market);
     if (marketPriceCents < MIN_PRICE || marketPriceCents > MAX_PRICE) continue;
@@ -58,6 +60,7 @@ try {
 
   if (error) throw error;
     results.push(prediction);
+    if (!ACTIONABLE_LABELS.includes(label)) continue;
 
   const message = formatAlertMessage({
     predictionId: prediction.id,
